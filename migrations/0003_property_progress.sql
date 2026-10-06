@@ -1,0 +1,1 @@
+ALTER TABLE viewings ADD COLUMN progress TEXT NOT NULL DEFAULT '{}';

@@ -1,0 +1,32 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {pbkdf2Sync} from 'node:crypto';
+import worker,{reminders} from '../worker/index.ts';
+import {testDatabase} from './support.ts';
+test('authentication, CSRF, validation, persistence, editing, deletion and logout',async()=>{
+ const DB=testDatabase();const password='test-long-password';
+ const env:any={DB,PASSWORD_HASH:`test:${Array.from(pbkdf2Sync(password,'test',100000,32,'sha256')).map(x=>x.toString(16).padStart(2,'0')).join('')}`};
+ let cookie='';
+ const call=(path:string,method='GET',data?:unknown,origin='https://app.test')=>worker.fetch(new Request(`https://app.test/api${path}`,{method,headers:{Origin:origin,Cookie:cookie},...(data?{body:JSON.stringify(data)}:{})}),env);
+ assert.equal((await call('/viewings')).status,401);
+ assert.equal((await call('/login','POST',{password},'https://evil.test')).status,403);
+ assert.equal((await call('/login','POST',{password:'incorrect'})).status,401);
+ const login=await call('/login','POST',{password});assert.equal(login.status,200);cookie=login.headers.get('Set-Cookie')!.split(';')[0];assert.match(login.headers.get('Set-Cookie')!,/HttpOnly; Secure; SameSite=Strict/);
+ assert.equal((await call('/viewings','POST',{title:'Bad'})).status,400);
+ const view={title:'Test flat',address:'1 High Street',starts_at:Date.now()+36000000,duration:30};
+ const created=await call('/viewings','POST',view);assert.equal(created.status,201);const {id}=await created.json() as any;
+ let list=await (await call('/viewings')).json() as any[];assert.equal(list.length,1);
+ assert.equal((await call(`/viewings/${id}`,'PUT',{...view,revision:0})).status,409);
+ assert.equal((await call(`/viewings/${id}`,'PUT',{...view,title:'Updated flat',revision:1})).status,200);
+ list=await (await call('/viewings')).json() as any[];assert.equal(list[0].title,'Updated flat');
+ assert.equal((await call(`/viewings/${id}`,'PUT',{...view,revision:2,progress:{intent:'no',attendance:'attended',email:true,documents:true,outcome:'ongoing'}})).status,200);
+ list=await (await call('/viewings')).json() as any[];assert.equal(list[0].progress.documents,true);assert.equal(list[0].progress.intent,'no');
+ assert.equal((await call(`/viewings/${id}`,'PUT',{...view,revision:3,progress:{intent:'invalid'}})).status,400);
+ assert.equal((await call(`/viewings/${id}`,'PUT',{...view,revision:3})).status,200);
+ list=await (await call('/viewings')).json() as any[];assert.equal(list[0].progress.email,true);
+ await reminders(env); // Safe when push is not configured.
+ assert.equal((await call(`/viewings/${id}`,'DELETE')).status,200);
+ assert.deepEqual(await (await call('/viewings')).json(),[]);
+ assert.equal((await call('/logout','POST',{})).status,200);
+ assert.equal((await call('/viewings')).status,401);DB.close();
+});

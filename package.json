@@ -1,0 +1,19 @@
+{
+  "name": "viewing-tracker", "version": "1.0.0", "private": true, "type": "module",
+  "scripts": {
+    "dev": "npm run build && wrangler dev",
+    "dev:ui": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "deploy": "npm run build && wrangler deploy",
+    "db:local": "wrangler d1 migrations apply viewing-tracker-db --local",
+    "db:remote": "wrangler d1 migrations apply viewing-tracker-db --remote",
+    "setup": "node scripts/setup.mjs",
+    "keys": "node scripts/keys.mjs"
+  },
+  "dependencies": {"web-push": "3.6.7"},
+  "devDependencies": {"@cloudflare/workers-types": "5.20261006.1", "@types/web-push": "3.6.4", "typescript": "6.0.3", "vite": "8.3.3", "wrangler": "4.147.0", "eslint": "10.12.0", "typescript-eslint": "8.71.1"}
+}
