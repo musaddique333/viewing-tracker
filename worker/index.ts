@@ -1,7 +1,7 @@
 import webpush from 'web-push';
 import { allowedPushEndpoint, SIX_HOURS, validateViewing, type Viewing } from './domain.ts';
 interface Env { DB: D1Database; ASSETS: Fetcher; PASSWORD_HASH: string; VAPID_PUBLIC_KEY: string; VAPID_PRIVATE_KEY: string; VAPID_SUBJECT: string }
-type Row = Omit<Viewing,'links'> & {links:string};
+type Row = Omit<Viewing,'links'> & {links:string; reminder_revision:number};
 type Sub = {id:string; subscription:string};
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
 const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,'0')).join('');
@@ -76,7 +76,7 @@ async function api(request: Request,env: Env) {
   if(request.method === 'DELETE') { await env.DB.prepare('DELETE FROM viewings WHERE id=?').bind(match[1]).run(); return json({ok:true}); }
   const input=await body(request),v=validateViewing(input);
   if(input.revision!==old.revision) return json({error:'This viewing changed on another device. Refresh before editing.'},409);
-  const result=await env.DB.prepare('UPDATE viewings SET title=?,address=?,starts_at=?,duration=?,agent=?,contact=?,links=?,notes=?,status=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?').bind(v.title,v.address,v.starts_at,v.duration,v.agent,v.contact,JSON.stringify(v.links),v.notes,v.status,now,old.id,old.revision).run();
+  const result=await env.DB.prepare('UPDATE viewings SET title=?,address=?,starts_at=?,duration=?,agent=?,contact=?,links=?,notes=?,status=?,revision=revision+1,reminder_revision=reminder_revision+?,updated_at=? WHERE id=? AND revision=?').bind(v.title,v.address,v.starts_at,v.duration,v.agent,v.contact,JSON.stringify(v.links),v.notes,v.status,(v.starts_at!==old.starts_at || (v.status==='scheduled' && old.status!=='scheduled'))?1:0,now,old.id,old.revision).run();
   if(!result.meta.changes) return json({error:'This viewing changed. Refresh before editing.'},409);
   return json({ok:true});
  }
@@ -109,8 +109,8 @@ export async function reminders(env: Env,now=Date.now()) {
  const subs=await env.DB.prepare('SELECT * FROM subscriptions').all<Sub>();
  for(const v of views.results) for(const sub of subs.results) {
   // Durable per-device leases prevent concurrent cron runs sending the same reminder.
-  await env.DB.prepare('INSERT OR IGNORE INTO deliveries(viewing_id,subscription_id,revision) VALUES(?,?,?)').bind(v.id,sub.id,v.revision).run();
-  const claimed=await env.DB.prepare('UPDATE deliveries SET lease_until=?,attempts=attempts+1 WHERE viewing_id=? AND subscription_id=? AND revision=? AND sent_at IS NULL AND lease_until<=?').bind(now+120000,v.id,sub.id,v.revision,now).run();
+  await env.DB.prepare('INSERT OR IGNORE INTO deliveries(viewing_id,subscription_id,revision) VALUES(?,?,?)').bind(v.id,sub.id,v.reminder_revision).run();
+  const claimed=await env.DB.prepare('UPDATE deliveries SET lease_until=?,attempts=attempts+1 WHERE viewing_id=? AND subscription_id=? AND revision=? AND sent_at IS NULL AND lease_until<=?').bind(now+120000,v.id,sub.id,v.reminder_revision,now).run();
   if(!claimed.meta.changes) continue;
   const current=await env.DB.prepare("SELECT id FROM viewings WHERE id=? AND revision=? AND status='scheduled'").bind(v.id,v.revision).first();
   if(!current) continue;
@@ -118,9 +118,9 @@ export async function reminders(env: Env,now=Date.now()) {
   const time=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/London',hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}).format(v.starts_at);
   try {
    await push(env,sub,{title:`Viewing ${hours===6?'in 6 hours':'coming up'}: ${v.title}`,body:`${time} · ${v.address}`,url:`/?viewing=${v.id}`,maps:`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v.address)}`,tag:`viewing-${v.id}`},Math.max(1,Math.floor((v.starts_at-now)/1000)));
-   await env.DB.prepare('UPDATE deliveries SET sent_at=?,last_error=NULL WHERE viewing_id=? AND subscription_id=? AND revision=?').bind(Date.now(),v.id,sub.id,v.revision).run();
+   await env.DB.prepare('UPDATE deliveries SET sent_at=?,last_error=NULL WHERE viewing_id=? AND subscription_id=? AND revision=?').bind(Date.now(),v.id,sub.id,v.reminder_revision).run();
   } catch {
-   await env.DB.prepare('UPDATE deliveries SET last_error=? WHERE viewing_id=? AND subscription_id=? AND revision=?').bind('Push delivery failed; retry pending',v.id,sub.id,v.revision).run();
+   await env.DB.prepare('UPDATE deliveries SET last_error=? WHERE viewing_id=? AND subscription_id=? AND revision=?').bind('Push delivery failed; retry pending',v.id,sub.id,v.reminder_revision).run();
    console.error('Push delivery failed', {viewingId:v.id});
   }
  }
