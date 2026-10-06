@@ -17,3 +17,9 @@ test('blocks local and attacker-controlled push endpoints',()=>{
  assert.equal(allowedPushEndpoint('https://fcm.googleapis.com/fcm/send/token'),true);
  for(const url of ['http://fcm.googleapis.com/x','https://fcm.googleapis.com.attacker.test/x','https://127.0.0.1/x','https://fcm.googleapis.com:8443/x','https://user@fcm.googleapis.com/x'])assert.equal(allowedPushEndpoint(url),false);
 });
+test('optional rent and travel fields distinguish empty from zero and reject invalid values',()=>{
+ assert.deepEqual(validateViewing(valid).property_details,{rent:null,office_minutes:null,airport_minutes:null,office_direct:false,airport_direct:false});
+ const details={rent:725.50,office_minutes:0,airport_minutes:75,office_direct:true,airport_direct:false};
+ assert.deepEqual(validateViewing({...valid,property_details:details}).property_details,details);
+ for(const bad of [{rent:-1},{rent:1.001},{rent:Infinity},{rent:'725'},{office_minutes:1.5},{airport_minutes:1441},{office_direct:'on'},null,[]])assert.throws(()=>validateViewing({...valid,property_details:bad}));
+});
