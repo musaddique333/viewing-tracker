@@ -71,3 +71,15 @@ npx wrangler d1 execute viewing-tracker-db --remote --command "DELETE FROM sessi
 ```
 
 Changing the password alone does not revoke existing sessions. Keep VAPID keys unchanged unless deliberately rotating all device subscriptions.
+
+## Attendance and property progress update
+
+Pull main, apply additive migration 0003 before deploying, then deploy:
+
+```sh
+git pull origin main
+npm run db:remote
+npm run deploy
+```
+
+Calendar entries open a map and all viewing information. Mark your attendance plan, record attendance after the viewing ends, and track email, application, documents, references, offer, tenancy agreement, deposit and keys. Email and document checkboxes record actions performed elsewhere; the app does not send emails or upload documents. Mark the outcome as secured, unsuccessful or withdrawn. Declining attendance suppresses reminders. Existing records are preserved.

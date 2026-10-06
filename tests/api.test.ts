@@ -19,6 +19,11 @@ test('authentication, CSRF, validation, persistence, editing, deletion and logou
  assert.equal((await call(`/viewings/${id}`,'PUT',{...view,revision:0})).status,409);
  assert.equal((await call(`/viewings/${id}`,'PUT',{...view,title:'Updated flat',revision:1})).status,200);
  list=await (await call('/viewings')).json() as any[];assert.equal(list[0].title,'Updated flat');
+ assert.equal((await call(`/viewings/${id}`,'PUT',{...view,revision:2,progress:{intent:'no',attendance:'attended',email:true,documents:true,outcome:'ongoing'}})).status,200);
+ list=await (await call('/viewings')).json() as any[];assert.equal(list[0].progress.documents,true);assert.equal(list[0].progress.intent,'no');
+ assert.equal((await call(`/viewings/${id}`,'PUT',{...view,revision:3,progress:{intent:'invalid'}})).status,400);
+ assert.equal((await call(`/viewings/${id}`,'PUT',{...view,revision:3})).status,200);
+ list=await (await call('/viewings')).json() as any[];assert.equal(list[0].progress.email,true);
  await reminders(env); // Safe when push is not configured.
  assert.equal((await call(`/viewings/${id}`,'DELETE')).status,200);
  assert.deepEqual(await (await call('/viewings')).json(),[]);

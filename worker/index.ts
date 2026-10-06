@@ -1,7 +1,7 @@
 import webpush from 'web-push';
-import { allowedPushEndpoint, SIX_HOURS, validateViewing, type Viewing } from './domain.ts';
+import { allowedPushEndpoint, validateProgress, SIX_HOURS, validateViewing, type Viewing } from './domain.ts';
 interface Env { DB: D1Database; ASSETS: Fetcher; PASSWORD_HASH: string; VAPID_PUBLIC_KEY: string; VAPID_PRIVATE_KEY: string; VAPID_SUBJECT: string }
-type Row = Omit<Viewing,'links'> & {links:string; reminder_revision:number};
+type Row = Omit<Viewing,'links'|'progress'> & {progress:string; links:string; reminder_revision:number};
 type Sub = {id:string; subscription:string};
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
 const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,'0')).join('');
@@ -62,11 +62,11 @@ async function api(request: Request,env: Env) {
  }
  if(path === '/api/viewings' && request.method === 'GET') {
   const result=await env.DB.prepare('SELECT * FROM viewings ORDER BY starts_at').all<Row>();
-  return json(result.results.map(r=>({...r,links:JSON.parse(r.links)})));
+  return json(result.results.map(r=>({...r,links:JSON.parse(r.links),progress:validateProgress({attendance:r.status==='viewed'?'attended':'pending',...JSON.parse(r.progress)})})));
  }
  if(path === '/api/viewings' && request.method === 'POST') {
   const v=validateViewing(await body(request)),id=crypto.randomUUID();
-  await env.DB.prepare('INSERT INTO viewings(id,title,address,starts_at,duration,agent,contact,links,notes,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,v.title,v.address,v.starts_at,v.duration,v.agent,v.contact,JSON.stringify(v.links),v.notes,v.status,now,now).run();
+  await env.DB.prepare('INSERT INTO viewings(id,title,address,starts_at,duration,agent,contact,links,notes,status,progress,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,v.title,v.address,v.starts_at,v.duration,v.agent,v.contact,JSON.stringify(v.links),v.notes,v.status,JSON.stringify(v.progress),now,now).run();
   return json({id},201);
  }
  const match=path.match(/^\/api\/viewings\/([a-f0-9-]+)$/);
@@ -74,9 +74,9 @@ async function api(request: Request,env: Env) {
   const old=await env.DB.prepare('SELECT * FROM viewings WHERE id=?').bind(match[1]).first<Row>();
   if(!old) return json({error:'Viewing not found.'},404);
   if(request.method === 'DELETE') { await env.DB.prepare('DELETE FROM viewings WHERE id=?').bind(match[1]).run(); return json({ok:true}); }
-  const input=await body(request),v=validateViewing(input);
+  const input=await body(request),v=validateViewing({...input,progress:input.progress ?? JSON.parse(old.progress)});
   if(input.revision!==old.revision) return json({error:'This viewing changed on another device. Refresh before editing.'},409);
-  const result=await env.DB.prepare('UPDATE viewings SET title=?,address=?,starts_at=?,duration=?,agent=?,contact=?,links=?,notes=?,status=?,revision=revision+1,reminder_revision=reminder_revision+?,updated_at=? WHERE id=? AND revision=?').bind(v.title,v.address,v.starts_at,v.duration,v.agent,v.contact,JSON.stringify(v.links),v.notes,v.status,(v.starts_at!==old.starts_at || (v.status==='scheduled' && old.status!=='scheduled'))?1:0,now,old.id,old.revision).run();
+  const result=await env.DB.prepare('UPDATE viewings SET title=?,address=?,starts_at=?,duration=?,agent=?,contact=?,links=?,notes=?,status=?,progress=?,revision=revision+1,reminder_revision=reminder_revision+?,updated_at=? WHERE id=? AND revision=?').bind(v.title,v.address,v.starts_at,v.duration,v.agent,v.contact,JSON.stringify(v.links),v.notes,v.status,JSON.stringify(v.progress),(v.starts_at!==old.starts_at || (v.status==='scheduled' && (old.status!=='scheduled' || (validateProgress(JSON.parse(old.progress)).intent==='no' && v.progress.intent!=='no'))))?1:0,now,old.id,old.revision).run();
   if(!result.meta.changes) return json({error:'This viewing changed. Refresh before editing.'},409);
   return json({ok:true});
  }
@@ -108,6 +108,8 @@ export async function reminders(env: Env,now=Date.now()) {
  const views=await env.DB.prepare("SELECT * FROM viewings WHERE status='scheduled' AND starts_at>? AND starts_at<=? ORDER BY starts_at LIMIT 100").bind(now,now+SIX_HOURS).all<Row>();
  const subs=await env.DB.prepare('SELECT * FROM subscriptions').all<Sub>();
  for(const v of views.results) for(const sub of subs.results) {
+  const progress=validateProgress(JSON.parse(v.progress));
+  if(progress.intent==='no' || progress.attendance!=='pending' || progress.outcome!=='ongoing') continue;
   // Durable per-device leases prevent concurrent cron runs sending the same reminder.
   await env.DB.prepare('INSERT OR IGNORE INTO deliveries(viewing_id,subscription_id,revision) VALUES(?,?,?)').bind(v.id,sub.id,v.reminder_revision).run();
   const claimed=await env.DB.prepare('UPDATE deliveries SET lease_until=?,attempts=attempts+1 WHERE viewing_id=? AND subscription_id=? AND revision=? AND sent_at IS NULL AND lease_until<=?').bind(now+120000,v.id,sub.id,v.reminder_revision,now).run();
