@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [musaddique]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -22,7 +22,7 @@ jobs:
           WRANGLER_SEND_METRICS: 'false'
   deploy:
     needs: validate
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+    if: github.ref == 'refs/heads/musaddique' && github.event_name != 'pull_request' && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     concurrency:
       group: production
