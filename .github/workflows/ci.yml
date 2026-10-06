@@ -44,6 +44,6 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           node scripts/configure-ci.mjs
-      - name: Check attendance migration is applied
-        run: npx wrangler d1 execute viewing-tracker-db --remote --command "SELECT progress FROM viewings LIMIT 0"
+      - name: Apply database migrations
+        run: npm run db:remote
       - run: npm run deploy

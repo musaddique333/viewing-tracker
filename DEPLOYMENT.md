@@ -25,7 +25,7 @@ Before production rollout, validate the login, add/edit/delete flow, calendar, a
 ## GitHub account steps
 
 1. Repository → **Settings → Branches / Default branch** (or General) → choose **main**. The original empty repo default was `musaddique`; the GitHub connector could create `main` but cannot change this repository setting.
-2. Cloudflare → My Profile → API Tokens → create a narrowly scoped token for this account with **Workers Scripts: Edit** and the account read permissions required by Wrangler (Workers Routes: Edit only for a custom route). D1 provisioning/migrations are performed separately through your local Cloudflare login.
+2. Cloudflare → My Profile → API Tokens → create a narrowly scoped token for this account with **Workers Scripts: Edit**, **D1: Edit**, and the account read permissions required by Wrangler (Workers Routes: Edit only for a custom route). Initial D1 provisioning is performed separately through your local Cloudflare login. GitHub Actions applies pending migrations before each deployment.
 3. Repository → **Settings → Secrets and variables → Actions → Secrets**:
    - `CLOUDFLARE_API_TOKEN` — your deployment token.
    - `CLOUDFLARE_ACCOUNT_ID` — the Cloudflare account ID.
@@ -34,7 +34,7 @@ Before production rollout, validate the login, add/edit/delete flow, calendar, a
    - `CLOUDFLARE_DEPLOY_ENABLED` — `true`, only after setup and production secrets are ready.
 5. Push to `main`, or **Actions → CI → Run workflow** on `main`.
 
-The validate job runs on every main push and pull request. Deployment is skipped until explicitly enabled. Once enabled it requires successful validation. No database migration is applied automatically on deployment. Configure the `production` GitHub environment with any desired approvals. Avoid enabling a second Cloudflare Git build pipeline for the same Worker.
+The validate job runs on every main push and pull request. Deployment is skipped until explicitly enabled. Once enabled it requires successful validation. Pending database migrations are applied automatically before deployment; a failed migration prevents deployment. Configure the `production` GitHub environment with any desired approvals. Avoid enabling a second Cloudflare Git build pipeline for the same Worker.
 
 ## Migrations and recovery
 
