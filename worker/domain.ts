@@ -9,9 +9,22 @@ export function validateProgress(value: unknown): Progress {
  for(const key of ['email','application','documents','references','offer','agreement','deposit','keys'] as const) if(typeof v[key] !== 'boolean') throw new Error('Check progress.');
  return Object.fromEntries(Object.keys(defaults).map(key=>[key,v[key as keyof Progress]])) as Progress;
 }
+export type PropertyDetails = { rent: number | null; office_minutes: number | null; airport_minutes: number | null; office_direct: boolean; airport_direct: boolean };
+export function validatePropertyDetails(value: unknown): PropertyDetails {
+ const defaults: PropertyDetails = {rent:null,office_minutes:null,airport_minutes:null,office_direct:false,airport_direct:false};
+ if(value === undefined) return defaults;
+ if(!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Check property details.');
+ const v = {...defaults,...value} as PropertyDetails;
+ for(const key of ['rent','office_minutes','airport_minutes'] as const) {
+  const n=v[key];
+  if(n!==null && (typeof n!=='number' || !Number.isFinite(n) || n<0 || n>(key==='rent'?100000:1440) || (key==='rent'?Math.abs(n*100-Math.round(n*100))>0.000001:!Number.isInteger(n)))) throw new Error(key==='rent'?'Rent must be a valid monthly amount.':'Travel time must be 0–1440 whole minutes.');
+ }
+ for(const key of ['office_direct','airport_direct'] as const) if(typeof v[key]!=='boolean') throw new Error('Check direct route options.');
+ return {rent:v.rent,office_minutes:v.office_minutes,airport_minutes:v.airport_minutes,office_direct:v.office_direct,airport_direct:v.airport_direct};
+}
 export type Viewing = {
  id: string; title: string; address: string; starts_at: number; duration: number;
- agent: string; contact: string; links: string[]; notes: string; progress: Progress;
+ agent: string; contact: string; links: string[]; notes: string; progress: Progress; property_details: PropertyDetails;
  status: 'scheduled' | 'viewed' | 'cancelled'; revision: number; created_at: number; updated_at: number;
 };
 export function validateViewing(input: Record<string, unknown>) {
@@ -32,7 +45,7 @@ export function validateViewing(input: Record<string, unknown>) {
   if (typeof link !== 'string' || link.length > 2048) throw new Error('Invalid property link.');
   try { if (!['http:','https:'].includes(new URL(link).protocol)) throw new Error(); } catch { throw new Error('Links must start with https:// or http://.'); }
  }
- return {progress:validateProgress(input.progress),title,address,starts_at,duration,status: status as Viewing['status'],links,agent:str('agent',200),contact:str('contact',200),notes:str('notes',5000)};
+ return {property_details:validatePropertyDetails(input.property_details),progress:validateProgress(input.progress),title,address,starts_at,duration,status: status as Viewing['status'],links,agent:str('agent',200),contact:str('contact',200),notes:str('notes',5000)};
 }
 export function isDue(v: Pick<Viewing,'starts_at'|'status'>, now: number) {
  return v.status === 'scheduled' && v.starts_at > now && v.starts_at - SIX_HOURS <= now;
